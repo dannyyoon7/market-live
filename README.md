@@ -35,20 +35,19 @@
 
 ## 배포
 
-GitHub Pages (branch `main`, root). 별도 빌드 없음.
+**라이브: https://dannyyoon7.github.io/market-live/** — GitHub Pages, branch `main` / root.
+
+수정 후 반영:
 
 ```bash
-bash projects/market-live/deploy.sh
+cd projects/market-live && git add -A && git commit -m "update" && git push
 ```
 
-`deploy.sh` 는 저장소 push → GitHub Pages 활성화 → URL 출력까지 합니다. 전제 조건:
+푸시하면 1~2분 뒤 Pages 빌드가 끝나고 사이트에 반영됩니다.
 
-1. github.com 에 빈 **Public** 저장소 `market-live` 가 있어야 합니다.
-2. Pickle의 GitHub 연결이 그 저장소에 쓰기 권한을 가져야 합니다.
-
-> 2026-11-25 현재 이 계정의 GitHub 연결(@dannyyoon7)은 **저장소 생성 권한이 없습니다**
-> (`GraphQL: Resource not accessible by integration (createRepository)`).
-> 저장소를 만든 뒤 위 스크립트를 실행하면 `https://dannyyoon7.github.io/market-live/` 로 배포됩니다.
+> 참고: 이 계정의 GitHub 연결(@dannyyoon7)은 저장소 생성·Pages API·workflows 권한이 없습니다.
+> Pages는 저장소 Settings → Pages 에서 “Deploy from a branch / main / (root)” 로 켜져 있고,
+> Actions로 배포하려면 `deploy/pages.workflow.yml` 을 `workflows` 권한이 있는 토큰으로 올려야 합니다.
 
 ## 검증
 
