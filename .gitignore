@@ -1,0 +1,3 @@
+# GitHub App 토큰에 workflows 권한이 없어 이 워크플로는 push할 수 없습니다.
+# (deploy/pages.workflow.yml 참고 — Pages를 Actions로 배포하려면 저장소 권한 필요)
+.github/
