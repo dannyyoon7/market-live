@@ -286,49 +286,11 @@ async function loadYahoo() {
   return 'yahoo';
 }
 
-/* ── 소스 3. 업비트(WebSocket 실시간) · Coinbase ─────── */
-let upbitWS = null;
-let upbitWSLast = 0;
+/* ── 소스 3. 업비트(10초 간격) · 빗썸(폴백) · Coinbase ── */
 let upbitRSLast = 0;
 
-function connectUpbit() {
-  try {
-    upbitWS = new WebSocket('wss://api.upbit.com/websocket/v1');
-  } catch (_) { return; }
-  upbitWS.binaryType = 'arraybuffer';
-
-  upbitWS.addEventListener('open', () => {
-    upbitWS.send(JSON.stringify([{ ticket: 'market-live' }, { type: 'ticker', codes: ['KRW-BTC'] }]));
-  });
-
-  upbitWS.addEventListener('message', (ev) => {
-    try {
-      const text = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data);
-      const d = JSON.parse(text);
-      if (d.type !== 'ticker' || !d.trade_price) return;
-      upbitWSLast = Date.now();
-      B.krw = {
-        price: num(d.trade_price),
-        change: num(d.signed_change_price),
-        pct: num(d.signed_change_rate) * 100,
-        prev: num(d.prev_closing_price),
-        ts: new Date(num(d.trade_timestamp) || Date.now()),
-        source: '업비트',
-      };
-      renderBtc();
-      lastOkAt = new Date();
-      updateStatus();
-    } catch (_) { /* 형식 오류 무시 */ }
-  });
-
-  upbitWS.addEventListener('close', () => setTimeout(connectUpbit, 5000));
-  upbitWS.addEventListener('error', () => { try { upbitWS.close(); } catch (_) {} });
-}
-
-/* WS가 15초 이상 조용하면 REST 폴백(10초에 1회, 429 방지) */
 async function loadUpbit() {
-  if (Date.now() - upbitWSLast < 15000) return;
-  if (Date.now() - upbitRSLast < 10000) return;
+  if (Date.now() - upbitRSLast < 10000) return;   // 업비트 분당 호출 제한 회피
   upbitRSLast = Date.now();
   const j = await getJSON('https://api.upbit.com/v1/ticker?markets=KRW-BTC', 6000);
   const t = Array.isArray(j) ? j[0] : null;
@@ -339,7 +301,26 @@ async function loadUpbit() {
     pct: num(t.signed_change_rate) * 100,
     prev: num(t.prev_closing_price),
     ts: new Date(num(t.trade_timestamp) || Date.now()),
+    fetchedAt: Date.now(),
     source: '업비트',
+  };
+}
+
+/* 업비트가 막히거나 오래됐을 때 쓸 원화 폴백 (CORS 허용) */
+async function loadBithumb() {
+  const j = await getJSON('https://api.bithumb.com/public/ticker/BTC_KRW', 6000);
+  const d = j && j.data;
+  const price = num(d?.closing_price);
+  if (!(price > 0)) throw new Error('빗썸 응답 없음');
+  const prev = num(d.prev_closing_price);
+  B.krw = {
+    price,
+    change: Number.isFinite(prev) ? price - prev : NaN,
+    pct: Number.isFinite(prev) && prev > 0 ? (price / prev - 1) * 100 : NaN,
+    prev,
+    ts: new Date(num(d.date) || Date.now()),
+    fetchedAt: Date.now(),
+    source: '빗썸',
   };
 }
 
@@ -410,10 +391,12 @@ function tick() {
 
   schedule('crypto', async () => {
     const res = await Promise.allSettled([loadUpbit(), loadBtcUsd()]);
-    // 업비트 WS가 살아 있으면 REST는 건너뛰므로 둘 다 실패해도 정상으로 본다
-    if (res.every(r => r.status === 'rejected') && Date.now() - upbitWSLast > 15000) {
-      throw new Error('코인 시세 실패');
+    // 업비트 호출이 막혔거나 20초 이상 오래됐으면 빗썸으로 메운다
+    const old = !B.krw || (Date.now() - (B.krw.fetchedAt || 0) > 20000);
+    if (res[0].status === 'rejected' || old) {
+      await loadBithumb().catch(() => {});
     }
+    if (res.every(r => r.status === 'rejected') && !B.krw) throw new Error('코인 시세 실패');
   });
 
   schedule('metals', async () => {
@@ -892,7 +875,6 @@ function init() {
   buildCards();
   bind();
   startClock();
-  connectUpbit();
   tick();
   updateStatus();
   setInterval(() => {
