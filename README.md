@@ -36,3 +36,24 @@
 ## 배포
 
 GitHub Pages (branch `main`, root). 별도 빌드 없음.
+
+```bash
+bash projects/market-live/deploy.sh
+```
+
+`deploy.sh` 는 저장소 push → GitHub Pages 활성화 → URL 출력까지 합니다. 전제 조건:
+
+1. github.com 에 빈 **Public** 저장소 `market-live` 가 있어야 합니다.
+2. Pickle의 GitHub 연결이 그 저장소에 쓰기 권한을 가져야 합니다.
+
+> 2026-11-25 현재 이 계정의 GitHub 연결(@dannyyoon7)은 **저장소 생성 권한이 없습니다**
+> (`GraphQL: Resource not accessible by integration (createRepository)`).
+> 저장소를 만든 뒤 위 스크립트를 실행하면 `https://dannyyoon7.github.io/market-live/` 로 배포됩니다.
+
+## 검증
+
+```bash
+LD_LIBRARY_PATH=/workspace/.chromeruntime/lib python3 tests/verify_local.py   # 3개 화면 크기·콘솔·자동갱신·공유문구
+LD_LIBRARY_PATH=/workspace/.chromeruntime/lib python3 tests/verify_offline.py # API 전면 차단 시 실패 UI
+LD_LIBRARY_PATH=/workspace/.chromeruntime/lib python3 tests/verify_widths.py  # 320/360/390px 레이아웃
+```

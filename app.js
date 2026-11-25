@@ -1,11 +1,11 @@
 /* 실시간 시세 대시보드
  * 데이터: CNBC Quote(지수·주식·환율), 업비트(KRW-BTC), Coinbase(BTC-USD), gold-api(금·은 현물)
- * 폴백: Yahoo Finance(스파크) → r.jina.ai 텍스트 프록시, open.er-api.com(환율)
+ * 폴백: Yahoo Finance(스파크) → r.jina.ai 텍스트 프록시, 환율은 open.er-api.com
  */
 'use strict';
 
 const REFRESH_MS = 30_000;          // 자동 갱신 주기
-const STALE_MS = 8 * 60 * 1000;     // 이보다 오래된 시세는 '지연' 표시
+const STALE_MIN = 8;                // 이보다 오래된 시세는 '지연' 표시
 const OZ_TO_G = 31.1034768;
 const DON_G = 3.75;
 
@@ -13,27 +13,26 @@ const DON_G = 3.75;
 const GROUPS = ['국내증시', '미국증시', '암호화폐', '환율', '귀금속'];
 
 const ITEMS = [
-  { id: 'kospi',  group: '국내증시', name: '코스피',   sub: 'KOSPI',  ico: '🇰🇷', unit: 'p', dp: 2, digits: 0 },
-  { id: 'kosdaq', group: '국내증시', name: '코스닥',   sub: 'KOSDAQ', ico: '🇰🇷', unit: 'p', dp: 2, digits: 0 },
-  { id: 'nasdaq', group: '미국증시', name: '나스닥',   sub: 'NASDAQ', ico: '🇺🇸', unit: 'p', dp: 2, digits: 0 },
-  { id: 'dow',    group: '미국증시', name: '다우존스', sub: 'DOW',    ico: '🇺🇸', unit: 'p', dp: 2, digits: 0 },
-  { id: 'nvda',   group: '미국증시', name: '엔비디아', sub: 'NVDA',   ico: '🟩', unit: '',  dp: 2, digits: 2, pre: '$' },
-  { id: 'btc',    group: '암호화폐', name: '비트코인', sub: 'BTC',    ico: '🪙', unit: '원', dp: 0, digits: 0, wide: true, cls: 'coin-card' },
-  { id: 'usdkrw', group: '환율',     name: '원/달러',  sub: 'USD/KRW', ico: '💵', unit: '원', dp: 2, digits: 2 },
-  { id: 'gold',   group: '귀금속',   name: '국제 금',  sub: 'XAU/USD', ico: '🥇', unit: '/oz', dp: 2, digits: 2, wide: true, cls: 'gold-card', pre: '$' },
-  { id: 'silver', group: '귀금속',   name: '국제 은',  sub: 'XAG/USD', ico: '🥈', unit: '/oz', dp: 2, digits: 2, wide: true, cls: 'silver-card', pre: '$' },
+  { id: 'kospi',  group: '국내증시', name: '코스피',   sub: 'KOSPI',   kick: 'KR', kcls: 'k-kr', unit: 'p',  dp: 2, digits: 2, market: 'KR' },
+  { id: 'kosdaq', group: '국내증시', name: '코스닥',   sub: 'KOSDAQ',  kick: 'KR', kcls: 'k-kr', unit: 'p',  dp: 2, digits: 2, market: 'KR' },
+  { id: 'nasdaq', group: '미국증시', name: '나스닥',   sub: 'NASDAQ',  kick: 'US', kcls: 'k-us', unit: 'p',  dp: 2, digits: 2, market: 'US' },
+  { id: 'dow',    group: '미국증시', name: '다우존스', sub: 'DOW',     kick: 'US', kcls: 'k-us', unit: 'p',  dp: 2, digits: 2, market: 'US' },
+  { id: 'nvda',   group: '미국증시', name: '엔비디아', sub: 'NVDA',    kick: 'US', kcls: 'k-us', unit: '',   dp: 2, digits: 2, market: 'US', pre: '$' },
+  { id: 'btc',    group: '암호화폐', name: '비트코인', sub: 'BTC · 업비트', kick: '₿', kcls: 'k-btc', unit: '원', dp: 0, digits: 0, wide: true, cls: 'coin-card' },
+  { id: 'usdkrw', group: '환율',     name: '원/달러',  sub: 'USD/KRW', kick: 'FX', kcls: 'k-fx', unit: '원', dp: 2, digits: 2, market: 'FX' },
+  { id: 'gold',   group: '귀금속',   name: '국제 금',  sub: 'XAU/USD', kick: 'Au', kcls: 'k-au', unit: '/oz', dp: 2, digits: 2, wide: true, cls: 'gold-card', pre: '$' },
+  { id: 'silver', group: '귀금속',   name: '국제 은',  sub: 'XAG/USD', kick: 'Ag', kcls: 'k-ag', unit: '/oz', dp: 2, digits: 2, wide: true, cls: 'silver-card', pre: '$' },
 ];
 
 /* ── 상태 ─────────────────────────────────────────── */
-const Q = {};                        // 지수·주식·환율 (id → 시세)
-const B = { krw: null, usd: null };  // 비트코인
+const Q = {};                           // 지수·주식·환율 (id → 시세)
+const B = { krw: null, usd: null };     // 비트코인
 const M = { gold: null, silver: null }; // 금·은 현물
-const refs = {};                     // 카드 DOM 참조
+const refs = {};                        // 카드 DOM 참조
 
 let lastCycleAt = null;
 let nextCycleAt = Date.now() + REFRESH_MS;
 let running = false;
-let lastError = null;
 
 /* ── 유틸 ─────────────────────────────────────────── */
 const $ = (s, el = document) => el.querySelector(s);
@@ -49,14 +48,19 @@ function fmt(n, dp = 2) {
   return n.toLocaleString('ko-KR', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
 
-function fmtPct(p) {
+function fmtPct(p, withSign = true) {
   if (p == null || !Number.isFinite(p)) return '–';
-  return (p > 0 ? '+' : '') + p.toFixed(2) + '%';
+  return (withSign && p > 0 ? '+' : '') + p.toFixed(2) + '%';
 }
 
-function fmtChange(c, dp = 2) {
+function fmtAbs(c, dp = 2) {
   if (c == null || !Number.isFinite(c)) return '–';
   return Math.abs(c).toLocaleString('ko-KR', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+
+function fmtPctAbs(p) {
+  if (p == null || !Number.isFinite(p)) return '–';
+  return Math.abs(p).toFixed(2) + '%';
 }
 
 function arrow(c) {
@@ -82,19 +86,47 @@ const kstFmt = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hour12: false,
 });
-
 const kstClock = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 });
 
+function kstParts(d) {
+  return Object.fromEntries(kstFmt.formatToParts(d).map(p => [p.type, p.value]));
+}
 function kstTime(d) {
-  const parts = Object.fromEntries(kstFmt.formatToParts(d).map(p => [p.type, p.value]));
-  return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+  const p = kstParts(d);
+  return `${p.month}/${p.day} ${p.hour}:${p.minute}`;
+}
+function ageMinutes(ts) {
+  return ts ? (Date.now() - ts.getTime()) / 60000 : NaN;
 }
 
-function ageMinutes(ts) {
-  if (!ts) return null;
-  return (Date.now() - ts.getTime()) / 60000;
+/* 시장 현지 시각 */
+function clockIn(tz) {
+  const f = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const p = Object.fromEntries(f.formatToParts(new Date()).map(x => [x.type, x.value]));
+  const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday);
+  const mins = (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10);
+  return { dow, mins, weekend: dow === 0 || dow === 6 };
+}
+
+function marketTag(it) {
+  if (it.market === 'KR') {
+    const t = clockIn('Asia/Seoul');
+    if (!t.weekend && t.mins >= 540 && t.mins < 930) return { label: '장중', cls: 'open' };
+    return { label: '마감', cls: 'closed' };
+  }
+  if (it.market === 'US') {
+    const t = clockIn('America/New_York');
+    if (t.weekend) return { label: '마감', cls: 'closed' };
+    if (t.mins >= 570 && t.mins < 960) return { label: '장중', cls: 'open' };
+    if (t.mins >= 240 && t.mins < 570) return { label: '장전', cls: 'pre' };
+    if (t.mins >= 960 && t.mins < 1200) return { label: '시간외', cls: 'after' };
+    return { label: '마감', cls: 'closed' };
+  }
+  return { label: '24시간', cls: 'open' };
 }
 
 async function fetchWithTimeout(url, ms = 9000, opts = {}) {
@@ -139,7 +171,10 @@ async function loadCnbc() {
     const change = num(q.change);
     const pct = num(q.change_pct);
     const prev = num(q.previous_day_closing) || (Number.isFinite(change) ? price - change : NaN);
-    const ts = parseTs(q.last_time);
+
+    const raw = q.last_time || '';
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+    const ts = dateOnly ? null : parseTs(raw);
 
     Q[id] = {
       price,
@@ -149,11 +184,10 @@ async function loadCnbc() {
       high: num(q.high),
       low: num(q.low),
       ts,
-      dateOnly: !ts,
+      dateOnly,
+      dayLabel: dateOnly ? raw.slice(5, 7) + '/' + raw.slice(8, 10) : null,
       source: 'CNBC',
-      status: q.curmktstatus || '',
       delayed: q.realTime === 'false',
-      live: true,
     };
     ok++;
   }
@@ -189,7 +223,6 @@ async function loadYahoo() {
     const prev = num(meta.chartPreviousClose) || num(meta.previousClose);
     const pct = num(meta.regularMarketChangePercent);
     const change = Number.isFinite(prev) ? price - prev : NaN;
-    const ts = meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000) : null;
 
     Q[id] = {
       price,
@@ -198,12 +231,11 @@ async function loadYahoo() {
       prev,
       high: NaN,
       low: NaN,
-      ts,
+      ts: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000) : null,
       dateOnly: false,
+      dayLabel: null,
       source: 'Yahoo',
-      status: '',
       delayed: true,
-      live: true,
     };
     ok++;
   }
@@ -221,8 +253,6 @@ async function loadUpbit() {
     change: num(t.signed_change_price),
     pct: num(t.signed_change_rate) * 100,
     prev: num(t.prev_closing_price),
-    high: num(t.high_price),
-    low: num(t.low_price),
     ts: new Date(num(t.trade_timestamp) || Date.now()),
     source: '업비트',
   };
@@ -263,7 +293,7 @@ async function loadFxFallback() {
   Q.usdkrw = {
     price: p, change: NaN, pct: NaN, prev: NaN, high: NaN, low: NaN,
     ts: new Date(j.time_last_update_unix ? j.time_last_update_unix * 1000 : Date.now()),
-    dateOnly: false, source: 'er-api', status: '', delayed: true, live: true,
+    dateOnly: false, dayLabel: null, source: 'er-api', delayed: true,
   };
 }
 
@@ -278,28 +308,26 @@ async function refreshAll(manual = false) {
   // 1) 지수·주식·환율: CNBC → Yahoo 폴백
   try {
     await loadCnbc();
-  } catch (e1) {
+  } catch (_) {
     try {
       await loadYahoo();
-    } catch (e2) {
+    } catch (_) {
       fail.push('지수·환율');
-      lastError = (e1 && e1.message) || '알 수 없는 오류';
     }
   }
 
   // 2) 환율이 비어 있으면 보조 소스
   if (!Q.usdkrw || !(Q.usdkrw.price > 0)) {
-    try { await loadFxFallback(); } catch (_) { /* 무시 */ }
+    try { await loadFxFallback(); } catch (_) { fail.push('환율'); }
   }
 
   // 3) 코인·귀금속 (서로 독립)
-  const tasks = [
+  await Promise.allSettled([
     loadUpbit().catch(() => fail.push('업비트')),
-    (B.usd ? Promise.resolve() : loadBtcUsd()).catch(() => fail.push('BTC 달러')),
+    loadBtcUsd().catch(() => fail.push('BTC달러')),
     loadMetal('XAU').then(m => { M.gold = m; }).catch(() => fail.push('금')),
     loadMetal('XAG').then(m => { M.silver = m; }).catch(() => fail.push('은')),
-  ];
-  await Promise.allSettled(tasks);
+  ]);
 
   running = false;
   lastCycleAt = new Date();
@@ -316,18 +344,21 @@ function updateStatus(fail, manual) {
   dot.className = 'sd';
 
   const time = lastCycleAt ? kstClock.format(lastCycleAt) : '--:--:--';
-
   if (manual) flash('새로고침 완료');
 
   if (!fail.length) {
     txt.textContent = `${time} 갱신 완료`;
-  } else if (fail.length >= 5) {
+  } else if (fail.length >= 3) {
     dot.classList.add('err');
-    txt.textContent = `${time} · 시세를 불러오지 못했어요 (자동 재시도 중)`;
+    txt.textContent = `${time} · 시세를 불러오지 못했어요 (자동 재시도)`;
   } else {
     dot.classList.add('warn');
     txt.textContent = `${time} · 일부 지연 (${fail.join(', ')})`;
   }
+}
+
+function hasAnyData() {
+  return Object.keys(Q).some(k => Q[k] && Q[k].price > 0) || !!(B.krw && B.krw.price > 0) || !!(M.gold || M.silver);
 }
 
 /* ── 렌더 ─────────────────────────────────────────── */
@@ -337,26 +368,25 @@ function renderAll() {
   renderMetals();
 }
 
-function paintIndex(id) {
-  const it = ITEMS.find(i => i.id === id);
-  const r = refs[id];
+function paintIndex(it) {
+  const r = refs[it.id];
   if (!r) return;
-  const q = Q[id];
+  const q = Q[it.id];
 
   if (!q || !(q.price > 0)) {
-    r.card.classList.add('stale');
     r.num.textContent = '–';
-    r.delta.textContent = '불러오는 중…';
-    r.src.textContent = '연결 중';
+    r.delta.textContent = lastCycleAt ? '불러오지 못했어요' : '불러오는 중…';
+    r.src.textContent = lastCycleAt ? '연결 실패 · 재시도 중' : '연결 중';
+    r.srcDot.classList.add('old');
     return;
   }
 
   const dir = dirOf(q.change, q.pct);
-  r.card.classList.remove('up', 'down', 'flat', 'stale');
+  r.card.classList.remove('up', 'down', 'flat');
   r.card.classList.add(dir);
 
   const age = ageMinutes(q.ts);
-  const stale = Number.isFinite(age) && age > STALE_MS / 60000;
+  const stale = Number.isFinite(age) && age > STALE_MIN;
 
   r.num.textContent = fmt(q.price, it.dp);
   r.pre.textContent = it.pre || '';
@@ -364,7 +394,7 @@ function paintIndex(id) {
 
   r.delta.innerHTML =
     `<span class="ar">${arrow(q.change)}</span>` +
-    `<span class="ab">${fmtChange(q.change, it.digits)}</span>` +
+    `<span class="ab">${fmtAbs(q.change, it.digits)}</span>` +
     `<span class="pc">(${fmtPct(q.pct)})</span>`;
 
   // 일중 범위
@@ -380,44 +410,30 @@ function paintIndex(id) {
     r.range.style.display = 'none';
   }
 
-  // 상태 태그
-  const st = marketTag(q);
-  if (st) {
-    r.tag.hidden = false;
-    r.tag.className = 'tag ' + st.cls;
-    r.tag.textContent = st.label;
-  } else {
-    r.tag.hidden = true;
-  }
+  // 장 상태 태그
+  const st = marketTag(it);
+  r.tag.hidden = false;
+  r.tag.className = 'tag ' + st.cls;
+  r.tag.textContent = st.label;
 
-  if (st && st.cls === 'closed') r.card.classList.add('stale');
-
-  // 출처 / 시각
-  const t = q.ts ? kstTime(q.ts) : null;
+  // 출처 / 시각 / 지연
   const bits = [q.source];
-  if (q.dateOnly) bits.push('전일 종가');
-  else if (t) bits.push(t);
-  if (stale || q.delayed) {
-    if (Number.isFinite(age) && age >= 1) bits.push(`${Math.round(age)}분 지연`);
-    else bits.push('지연');
+  if (q.dateOnly) bits.push(`${q.dayLabel} 종가`);
+  else if (q.ts) bits.push(kstTime(q.ts));
+
+  if (st.cls !== 'closed' && stale && Number.isFinite(age)) {
+    bits.push(`${Math.round(age)}분 지연`);
     r.srcDot.classList.add('old');
+    r.card.classList.add('stale');
   } else {
     r.srcDot.classList.remove('old');
+    r.card.classList.remove('stale');
   }
   r.src.textContent = bits.join(' · ');
 }
 
-function marketTag(q) {
-  const s = (q.status || '').toUpperCase();
-  if (s === 'REG_MKT') return { label: '장중', cls: 'open' };
-  if (s === 'PRE_MKT') return { label: '장전', cls: 'after' };
-  if (s === 'POST_MKT') return { label: '시간외', cls: 'after' };
-  if (s.startsWith('CLOSED')) return { label: '마감', cls: 'closed' };
-  return null;
-}
-
 function renderQuotes() {
-  ['kospi', 'kosdaq', 'nasdaq', 'dow', 'nvda', 'usdkrw'].forEach(paintIndex);
+  ITEMS.filter(i => i.market).forEach(paintIndex);
 }
 
 function renderBtc() {
@@ -425,30 +441,28 @@ function renderBtc() {
   if (!r) return;
   const k = B.krw;
   if (!k) {
-    r.card.classList.add('stale');
     r.num.textContent = '–';
-    r.delta.textContent = '불러오는 중…';
+    r.delta.textContent = lastCycleAt ? '불러오지 못했어요' : '불러오는 중…';
+    r.src.textContent = lastCycleAt ? '연결 실패 · 재시도 중' : '연결 중';
     return;
   }
 
-  const dir = dirOf(k.change, k.pct);
-  r.card.classList.remove('up', 'down', 'flat', 'stale');
-  r.card.classList.add(dir);
+  r.card.classList.remove('up', 'down', 'flat');
+  r.card.classList.add(dirOf(k.change, k.pct));
 
   r.num.textContent = fmt(k.price, 0);
   r.delta.innerHTML =
     `<span class="ar">${arrow(k.change)}</span>` +
-    `<span class="ab">${fmtChange(k.change, 0)}</span>` +
+    `<span class="ab">${fmtAbs(k.change, 0)}</span>` +
     `<span class="pc">(${fmtPct(k.pct)})</span>`;
 
-  // 김치 프리미엄
   const fx = Q.usdkrw && Q.usdkrw.price;
   const usd = B.usd && B.usd.price;
   if (fx && usd) {
     const prem = (k.price / (usd * fx) - 1) * 100;
     r.prem.textContent = fmtPct(prem);
-    r.premBox.classList.remove('up', 'down');
-    r.premBox.classList.add(prem >= 0 ? 'up' : 'down');
+    r.premBox.classList.remove('up', 'down', 'flat');
+    r.premBox.classList.add(dirOf(prem));
     r.premBox.style.display = '';
   } else {
     r.premBox.style.display = 'none';
@@ -457,8 +471,7 @@ function renderBtc() {
   r.usd.textContent = usd ? '$' + fmt(usd, 2) : '–';
   r.usdLb.textContent = B.usd ? B.usd.source : 'USD';
 
-  const when = kstClock.format(k.ts);
-  r.src.textContent = `${k.source} · ${when} · 24시간 거래`;
+  r.src.textContent = `${k.source} · ${kstClock.format(k.ts)} · 24시간 거래`;
   r.srcDot.classList.remove('old');
 }
 
@@ -470,25 +483,25 @@ function renderMetals() {
     const fut = Q[futId];
 
     if (!metal) {
-      r.card.classList.add('stale');
       r.num.textContent = '–';
-      r.delta.textContent = '불러오는 중…';
+      r.delta.textContent = lastCycleAt ? '불러오지 못했어요' : '불러오는 중…';
+      r.src.textContent = lastCycleAt ? '연결 실패 · 재시도 중' : '연결 중';
       continue;
     }
 
-    // 등락은 COMEX 선물 기준(현물 가격 자체에는 전일 종가가 없음)
+    // 현물 가격 자체에는 전일 종가가 없어 등락은 COMEX 선물 기준으로 표기
     const dir = fut ? dirOf(fut.change, fut.pct) : 'flat';
-    r.card.classList.remove('up', 'down', 'flat', 'stale');
+    r.card.classList.remove('up', 'down', 'flat');
     r.card.classList.add(dir);
 
     r.num.textContent = fmt(metal.price, 2);
     if (fut && Number.isFinite(fut.pct)) {
       r.delta.innerHTML =
         `<span class="ar">${arrow(fut.change)}</span>` +
-        `<span class="pc">${fmtPct(fut.pct)}</span>` +
-        `<span class="ar" style="opacity:.6">· 선물 기준</span>`;
+        `<span class="pc">${fmtPctAbs(fut.pct)}</span>` +
+        `<span class="note">COMEX 선물</span>`;
     } else {
-      r.delta.textContent = '등락 정보 없음';
+      r.delta.innerHTML = `<span class="note">등락 정보 없음</span>`;
     }
 
     if (fx) {
@@ -500,8 +513,7 @@ function renderMetals() {
       r.don.textContent = '–';
     }
 
-    const when = kstClock.format(metal.ts);
-    r.src.textContent = `${metal.source} · ${when} · 현물`;
+    r.src.textContent = `${metal.source} · ${kstClock.format(metal.ts)} · 현물`;
     r.srcDot.classList.remove('old');
   }
 }
@@ -519,18 +531,18 @@ function buildCards() {
     const grid = document.createElement('div');
     grid.className = 'grid';
     section.append(h, grid);
+    root.appendChild(section);
 
     for (const it of ITEMS.filter(i => i.group === g)) {
       grid.insertAdjacentHTML('beforeend', template(it));
       cacheRefs(it);
     }
-    root.appendChild(section);
   }
 }
 
 function template(it) {
   const head =
-    `<div class="card-head"><span class="ico">${it.ico}</span>` +
+    `<div class="card-head"><span class="kick ${it.kcls}">${it.kick}</span>` +
     `<span class="nm">${it.name}</span><span class="tag mkt" hidden></span>` +
     `<span class="sub">${it.sub}</span></div>`;
 
@@ -539,7 +551,9 @@ function template(it) {
 
   if (it.id === 'btc') {
     return `<article class="card wide ${it.cls || ''}" data-id="${it.id}">
-      ${head}
+      <div class="card-head"><span class="kick ${it.kcls}">${it.kick}</span>` +
+      `<span class="nm">${it.name}</span><span class="tag open">24시간</span>` +
+      `<span class="sub">${it.sub}</span></div>
       <div class="price"><span class="pre"></span><span class="num">–</span><span class="unit">원</span></div>
       ${delta}
       <div class="chips">
@@ -552,7 +566,9 @@ function template(it) {
 
   if (it.id === 'gold' || it.id === 'silver') {
     return `<article class="card wide ${it.cls || ''}" data-id="${it.id}">
-      ${head}
+      <div class="card-head"><span class="kick ${it.kcls}">${it.kick}</span>` +
+      `<span class="nm">${it.name}</span><span class="tag open">현물</span>` +
+      `<span class="sub">${it.sub}</span></div>
       <div class="price"><span class="pre">$</span><span class="num">–</span><span class="unit">/oz</span></div>
       ${delta}
       <div class="conv">
@@ -584,7 +600,7 @@ function cacheRefs(it) {
     src: $('.src .tx', card),
     srcDot: $('.src .d', card),
   };
-  if (it.id !== 'btc' && it.id !== 'gold' && it.id !== 'silver') {
+  if (!it.wide) {
     r.barFill = $('.bar i', card);
     r.barDot = $('.bar b', card);
     r.lo = $('.rl .lo', card);
@@ -605,24 +621,23 @@ function cacheRefs(it) {
 }
 
 /* ── 공유 문구 ────────────────────────────────────── */
-function lineIndex(id, name, dp) {
+function lineIndex(id, name) {
   const q = Q[id];
   if (!q || !(q.price > 0)) return null;
-  return `${name} ${fmt(q.price, dp)} ${arrow(q.change)}${fmtChange(q.change, dp)} (${fmtPct(q.pct)})`;
+  const it = ITEMS.find(i => i.id === id);
+  const dp = it ? it.dp : 2;
+  return `${name} ${fmt(q.price, dp)} ${arrow(q.change)}${fmtAbs(q.change, dp)} (${fmtPct(q.pct)})`;
 }
 
 function buildShareText() {
   const now = lastCycleAt || new Date();
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
-      .formatToParts(now).map(x => [x.type, x.value])
-  );
-
+  const p = kstParts(now);
   const L = [];
+
   L.push(`📈 ${p.month}/${p.day} ${p.hour}:${p.minute} 실시간 시세`);
   L.push('');
 
-  const kr = [lineIndex('kospi', '코스피', 2), lineIndex('kosdaq', '코스닥', 2)].filter(Boolean);
+  const kr = [lineIndex('kospi', '코스피'), lineIndex('kosdaq', '코스닥')].filter(Boolean);
   if (kr.length) {
     L.push('🇰🇷 국내증시');
     kr.forEach(t => L.push('· ' + t));
@@ -630,10 +645,10 @@ function buildShareText() {
   }
 
   const us = [
-    lineIndex('nasdaq', '나스닥', 2),
-    lineIndex('dow', '다우존스', 2),
+    lineIndex('nasdaq', '나스닥'),
+    lineIndex('dow', '다우존스'),
     (Q.nvda && Q.nvda.price > 0)
-      ? `엔비디아 $${fmt(Q.nvda.price, 2)} ${arrow(Q.nvda.change)}${fmtChange(Q.nvda.change, 2)} (${fmtPct(Q.nvda.pct)})`
+      ? `엔비디아 $${fmt(Q.nvda.price, 2)} ${arrow(Q.nvda.change)}${fmtAbs(Q.nvda.change, 2)} (${fmtPct(Q.nvda.pct)})`
       : null,
   ].filter(Boolean);
   if (us.length) {
@@ -644,7 +659,7 @@ function buildShareText() {
 
   if (B.krw) {
     L.push('🪙 코인');
-    L.push(`· 비트코인 ${fmt(B.krw.price, 0)}원 ${arrow(B.krw.change)}${fmtPct(B.krw.pct)} (업비트)`);
+    L.push(`· 비트코인 ${fmt(B.krw.price, 0)}원 ${arrow(B.krw.change)}${fmtPctAbs(B.krw.pct)} (업비트)`);
     const fx = Q.usdkrw && Q.usdkrw.price;
     const usd = B.usd && B.usd.price;
     if (usd && fx) {
@@ -656,7 +671,7 @@ function buildShareText() {
 
   if (Q.usdkrw && Q.usdkrw.price > 0) {
     L.push('💵 환율');
-    L.push(`· 원/달러 ${fmt(Q.usdkrw.price, 2)}원 ${arrow(Q.usdkrw.change)}${fmtChange(Q.usdkrw.change, 2)} (${fmtPct(Q.usdkrw.pct)})`);
+    L.push(`· 원/달러 ${fmt(Q.usdkrw.price, 2)}원 ${arrow(Q.usdkrw.change)}${fmtAbs(Q.usdkrw.change, 2)} (${fmtPct(Q.usdkrw.pct)})`);
     L.push('');
   }
 
@@ -677,7 +692,10 @@ function buildShareText() {
     L.push('');
   }
 
-  L.push(`출처 ${[...new Set([Q.kospi?.source, '업비트', B.usd?.source, 'gold-api'].filter(Boolean))].join('·')}`);
+  const sources = [...new Set([
+    Q.kospi?.source, '업비트', B.usd?.source, Q.usdkrw?.source, 'gold-api',
+  ].filter(Boolean))];
+  L.push(`출처 ${sources.join('·')}`);
 
   return L.join('\n');
 }
@@ -689,7 +707,7 @@ async function copyText(text) {
       await navigator.clipboard.writeText(text);
       return true;
     }
-  } catch (_) { /* 폴백으로 */ }
+  } catch (_) { /* 폴백 */ }
 
   try {
     const ta = document.createElement('textarea');
@@ -729,6 +747,10 @@ function openModal(text) {
 /* ── 이벤트 ───────────────────────────────────────── */
 function bind() {
   $('#copyBtn').addEventListener('click', async () => {
+    if (!hasAnyData()) {
+      flash('아직 시세를 못 불러왔어요. 잠시 후 다시 시도해 주세요');
+      return;
+    }
     const text = buildShareText();
     const ok = await copyText(text);
     if (ok) {
@@ -765,13 +787,10 @@ function startClock() {
   const cdEl = $('#countdown');
 
   setInterval(() => {
-    const now = new Date();
-    clockEl.textContent = kstClock.format(now);
+    clockEl.textContent = kstClock.format(new Date());
 
     const left = Math.max(0, Math.ceil((nextCycleAt - Date.now()) / 1000));
-    cdEl.textContent = document.visibilityState === 'visible'
-      ? `${left}초 후 갱신`
-      : '일시정지';
+    cdEl.textContent = document.visibilityState === 'visible' ? `${left}초 후 갱신` : '일시정지';
   }, 1000);
 }
 
