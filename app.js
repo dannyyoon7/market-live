@@ -290,7 +290,7 @@ async function loadYahoo() {
 let upbitRSLast = 0;
 
 async function loadUpbit() {
-  if (Date.now() - upbitRSLast < 10000) return;   // 업비트 분당 호출 제한 회피
+  if (Date.now() - upbitRSLast < 12000) return;   // 업비트 분당 호출 제한 회피(5회/분)
   upbitRSLast = Date.now();
   const j = await getJSON('https://api.upbit.com/v1/ticker?markets=KRW-BTC', 6000);
   const t = Array.isArray(j) ? j[0] : null;
@@ -392,7 +392,7 @@ function tick() {
   schedule('crypto', async () => {
     const res = await Promise.allSettled([loadUpbit(), loadBtcUsd()]);
     // 업비트 호출이 막혔거나 20초 이상 오래됐으면 빗썸으로 메운다
-    const old = !B.krw || (Date.now() - (B.krw.fetchedAt || 0) > 20000);
+    const old = !B.krw || (Date.now() - (B.krw.fetchedAt || 0) > 25000);
     if (res[0].status === 'rejected' || old) {
       await loadBithumb().catch(() => {});
     }
