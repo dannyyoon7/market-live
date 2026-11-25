@@ -1,43 +1,66 @@
 # 실시간 시세 대시보드
 
-코스피·코스닥·나스닥·다우·엔비디아·비트코인·원/달러·국제 금·은 시세를 한 화면에서 보는 정적 웹페이지입니다.
-서버 없이 브라우저에서 무료 공개 API를 직접 호출해 **30초마다 자동 갱신**합니다.
+국내·미국·일본 증시와 선물, 환율·달러인덱스, 비트코인, 원유와 귀금속까지 **18종목**을 한 화면에서 보는 정적 웹페이지입니다.
+서버 없이 브라우저에서 무료 공개 API를 직접 호출해 **3초마다 자동 갱신**합니다.
 
 ## 보는 법
 
-- 배포 주소: https://dannyyoon7.github.io/market-live/
+- 배포 주소: **https://dannyyoon7.github.io/market-live/**
 - 모바일 카카오톡 인앱 브라우저에서도 가로 스크롤 없이 보입니다.
 - 상단 **📋 단톡방 공유 문구 복사** 버튼을 누르면 지금 시세가 브리핑 텍스트로 복사됩니다.
+
+## 표시 항목 (18)
+
+| 섹션 | 항목 |
+| --- | --- |
+| 🇰🇷 국내증시 · 선물 | 코스피, 코스닥, 코스피200 |
+| 🇺🇸 미국증시 · 선물 | 나스닥, 다우존스, 나스닥100 선물, 반도체(SOX), VIX |
+| 🇯🇵 일본증시 · 선물 | 닛케이225, 닛케이 선물(CME) |
+| 💱 환율 · 달러 | 원/달러, 100엔/원(USD/JPY 병기), 달러인덱스(DXY) |
+| 🪙 암호화폐 | 비트코인(업비트 KRW + Coinbase USD + 김치프리미엄) |
+| 🛢️ 원유 · 귀금속 | WTI, 브렌트유, 국제 금(1g·1돈 환산), 국제 은(1g·1돈 환산) |
 
 ## 데이터 출처
 
 | 항목 | 1순위 | 폴백 |
 | --- | --- | --- |
-| 코스피·코스닥·나스닥·다우·엔비디아·원/달러 | CNBC Quote API (CORS 허용) | Yahoo Finance (r.jina.ai 프록시), 환율은 open.er-api.com |
+| 지수·선물·환율·원유 (코스피·코스닥·코스피200·나스닥·다우·NQ선물·SOX·VIX·닛케이·닛케이선물·원달러·엔달러·DXY·WTI·브렌트·금은 선물) | CNBC Quote API (CORS 허용, 17심볼 1회 요청) | Yahoo Finance 스파크 (r.jina.ai 경유, 30초 간격 제한) |
 | 비트코인(원) | 업비트 Open API | – |
-| 비트코인(달러) · 김치프리미엄 | Coinbase Spot → Binance | – |
+| 비트코인(달러) · 김치프리미엄 | Coinbase Spot | Binance |
+| 원/달러 보조 | open.er-api.com | – |
 | 국제 금·은(현물 $/oz) | gold-api.com | 등락은 COMEX 선물(CNBC) 기준 |
 
 - 김치프리미엄 = (업비트 원화가 ÷ (달러가 × 원/달러 환율) − 1) × 100
-- 1g 환산 = ($/oz × 원/달러) ÷ 31.1034768, 1돈 = 3.75g 기준
+- 1g 환산 = ($/oz × 원/달러) ÷ 31.1034768, 1돈 = 3.75g
+- 100엔/원 = 100 × (USD/KRW) ÷ (USD/JPY)
+
+## 3초 갱신을 지키는 방법
+
+- 소스별로 요청 잠금(중복 방지)과 **지수 백오프**를 둡니다. 실패하면 6초 → 12초 → 24초 → 30초로 간격을 늘려 429/차단을 피하고, 성공하면 즉시 3초 주기로 복귀합니다.
+- 실패해도 **직전 정상값을 그대로 유지**하고 카드 하단에 `n분 지연` 표시만 갱신합니다.
+- 화면이 백그라운드로 가면 폴링을 멈춥니다.
+- 60초 연속(약 20회) 실측에서 CNBC·업비트·Coinbase·gold-api 모두 200 응답, 콘솔 에러 0.
 
 ## 표기 규칙
 
-- 상승 **빨강 ▲**, 하락 **파랑 ▼** (국내 증시 관례)
+- 상승 **빨강 ▲**, 하락 **파랑 ▼** (국내 증시 관례), 보합은 `보합`
 - 카드 하단에 출처와 시세 시각, 지연된 시세는 `n분 지연` 표시
 - 국내 지수는 무료 공급원 특성상 15~20분 지연될 수 있습니다.
+- **코스피200은 선물이 아니라 현물지수입니다** — 무료·CORS 공개 API에 KRX 선물(주간/야간) 시세가 없어 지수로 대신 표시합니다.
 
 ## 파일
 
 - `index.html` — 화면 구조
 - `styles.css` — 다크 금융 터미널 스타일, 반응형
 - `app.js` — 시세 조회·렌더링·공유 문구 생성
+- `tests/verify_v2.py` — 18종목 표시·콘솔·레이아웃 검증 (Playwright)
+- `tests/soak_3s.py` — 60초 3초주기 소크 테스트
+- `tests/verify_offline.py` — API 전면 차단 시 실패 UI
+- `screenshots/` — 검증 스크린샷
 
 ## 배포
 
 **라이브: https://dannyyoon7.github.io/market-live/** — GitHub Pages, branch `main` / root.
-
-수정 후 반영:
 
 ```bash
 cd projects/market-live && git add -A && git commit -m "update" && git push
@@ -46,13 +69,5 @@ cd projects/market-live && git add -A && git commit -m "update" && git push
 푸시하면 1~2분 뒤 Pages 빌드가 끝나고 사이트에 반영됩니다.
 
 > 참고: 이 계정의 GitHub 연결(@dannyyoon7)은 저장소 생성·Pages API·workflows 권한이 없습니다.
-> Pages는 저장소 Settings → Pages 에서 “Deploy from a branch / main / (root)” 로 켜져 있고,
-> Actions로 배포하려면 `deploy/pages.workflow.yml` 을 `workflows` 권한이 있는 토큰으로 올려야 합니다.
-
-## 검증
-
-```bash
-LD_LIBRARY_PATH=/workspace/.chromeruntime/lib python3 tests/verify_local.py   # 3개 화면 크기·콘솔·자동갱신·공유문구
-LD_LIBRARY_PATH=/workspace/.chromeruntime/lib python3 tests/verify_offline.py # API 전면 차단 시 실패 UI
-LD_LIBRARY_PATH=/workspace/.chromeruntime/lib python3 tests/verify_widths.py  # 320/360/390px 레이아웃
-```
+> Pages는 저장소 Settings → Pages “Deploy from a branch / main / (root)” 로 켜져 있고,
+> Actions 배포가 필요하면 `deploy/pages.workflow.yml` 을 `workflows` 권한이 있는 토큰으로 올려야 합니다.

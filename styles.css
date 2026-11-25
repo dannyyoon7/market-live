@@ -245,6 +245,7 @@ body {
   letter-spacing: 0.02em;
   color: var(--muted);
 }
+.grp .gflag { font-size: 12px; margin-right: 1px; }
 .grp::after {
   content: "";
   flex: 1;
@@ -303,10 +304,12 @@ body {
 }
 .k-kr { color: #a9cbff; background: rgba(96, 165, 250, 0.18); }
 .k-us { color: #c9bcff; background: rgba(167, 139, 250, 0.18); }
+.k-jp { color: #ffc0c4; background: rgba(255, 122, 132, 0.18); }
 .k-btc { color: #fbbf24; background: rgba(247, 147, 26, 0.18); font-size: 11px; }
 .k-fx { color: #7ff0dd; background: rgba(45, 212, 191, 0.16); }
 .k-au { color: #f5d493; background: rgba(240, 194, 104, 0.18); }
 .k-ag { color: #dbe3ee; background: rgba(203, 213, 225, 0.16); }
+.k-oil { color: #ffcba4; background: rgba(251, 146, 60, 0.18); font-size: 8px; }
 .card-head .nm {
   font-size: 12.5px;
   font-weight: 700;
@@ -466,7 +469,8 @@ body {
 
 .conv {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 460px;
   gap: 7px;
   margin-top: 8px;
 }
@@ -569,16 +573,22 @@ body {
   margin-top: 10px;
 }
 
-@media (max-width: 375px) {
+@media (max-width: 639px) {
   .card-head .sub { display: none; }
+  .card-head .nm { white-space: normal; line-height: 1.2; word-break: keep-all; }
+  .card-head { align-items: flex-start; min-height: 22px; }
+  .card-head .tag { margin-top: 1px; }
+}
+
+@media (max-width: 375px) {
   .titles p { display: none; }
   .card { padding: 12px 11px 10px; }
 }
 
 @media (min-width: 700px) {
-  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid { grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); }
   .card.wide { grid-column: 1 / -1; }
-  #app { padding-left: 16px; padding-right: 16px; }
+  #app { padding-left: 16px; padding-right: 16px; max-width: 1000px; }
   .cta { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
   .titles h1 { font-size: 20px; }
 }
