@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#060a13" />
+<title>실시간 시세 · 코스피·나스닥·비트코인·금·환율</title>
+<meta name="description" content="코스피·코스닥·나스닥·다우·엔비디아·비트코인·원달러·국제 금·은 시세를 한 화면에서 30초마다 자동 갱신. 단톡방 공유 문구 복사 지원." />
+<meta property="og:title" content="실시간 시세 대시보드" />
+<meta property="og:description" content="국장·미장·코인·환율·귀금속 한눈에. 30초 자동 갱신." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230b1424'/%3E%3Cpath d='M20 68 L40 44 L55 56 L80 26' stroke='%23ff4d5f' stroke-width='9' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 17l5-6 4 3 6-8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 6h3v3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="titles">
+        <h1>실시간 시세</h1>
+        <p>국장 · 미장 · 코인 · 환율 · 귀금속</p>
+      </div>
+      <span class="live" id="live"><i></i><b>LIVE</b></span>
+    </div>
+    <div class="clock">
+      <span id="clock">--:--:--</span>
+      <span class="kst">KST</span>
+    </div>
+  </header>
+
+  <div class="cta">
+    <button id="copyBtn" class="btn-copy" type="button">
+      <span class="ico" aria-hidden="true">📋</span>
+      <span class="tx"><b>단톡방 공유 문구 복사</b><small>지금 시세를 깔끔한 브리핑으로</small></span>
+    </button>
+    <button id="refreshBtn" class="btn-icon" type="button" title="지금 새로고침" aria-label="지금 새로고침">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 5.7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+
+  <div class="status" id="status">
+    <span class="sd" id="statusDot" aria-hidden="true"></span>
+    <span id="statusText">시세 불러오는 중…</span>
+    <span class="count" id="countdown"></span>
+  </div>
+
+  <main id="cards" class="cards" aria-live="off"></main>
+
+  <footer class="foot">
+    <div class="legend">
+      <span><b class="up">▲ 상승</b> 빨강</span>
+      <span><b class="down">▼ 하락</b> 파랑</span>
+      <span class="dim">국내 증시 표기 기준</span>
+    </div>
+    <p class="muted">출처 · CNBC Quote · 업비트 · Coinbase · gold-api.com</p>
+    <p class="muted">30초마다 자동 갱신 · 화면을 벗어나면 잠시 멈춰요</p>
+    <p class="muted dim">시세는 참고용입니다. 투자 판단과 책임은 본인에게 있어요.</p>
+  </footer>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div id="modal" class="modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h2 id="modalTitle">공유 문구</h2>
+    <p class="hint">아래 글을 길게 눌러 <b>전체 선택 → 복사</b> 한 뒤 단톡방에 붙여넣으세요.</p>
+    <textarea id="modalText" readonly rows="14"></textarea>
+    <div class="sheet-actions">
+      <button id="modalCopy" class="btn-copy small" type="button">복사</button>
+      <button id="modalClose" class="btn-ghost" type="button">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
