@@ -329,11 +329,18 @@ async function loadBtcUsd() {
     const j = await getJSON('https://api.coinbase.com/v2/prices/BTC-USD/spot', 5000);
     const p = num(j?.data?.amount);
     if (p > 0) { B.usd = { price: p, ts: new Date(), source: 'Coinbase' }; return; }
-  } catch (_) { /* Binance 폴백 */ }
-  const j = await getJSON('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', 5000);
-  const p = num(j?.price);
+  } catch (_) { /* 다음 제공자 */ }
+
+  try {
+    const j = await getJSON('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', 5000);
+    const p = num(j?.price);
+    if (p > 0) { B.usd = { price: p, ts: new Date(), source: 'Binance' }; return; }
+  } catch (_) { /* 다음 제공자 */ }
+
+  const j = await getJSON('https://api.kraken.com/0/public/Ticker?pair=XBTUSD', 5000);
+  const p = num(j?.result?.XXBTZUSD?.c?.[0]);
   if (!(p > 0)) throw new Error('달러 시세 없음');
-  B.usd = { price: p, ts: new Date(), source: 'Binance' };
+  B.usd = { price: p, ts: new Date(), source: 'Kraken' };
 }
 
 /* ── 소스 4. 금·은 현물 ────────────────────────────── */
@@ -542,11 +549,15 @@ function renderBtc() {
 function renderMetal(it) {
   const r = refs[it.id];
   if (!r) return;
-  const metal = it.id === 'gold' ? M.gold : M.silver;
+  const spot = it.id === 'gold' ? M.gold : M.silver;
   const fut = Q[it.id === 'gold' ? 'goldF' : 'silverF'];
   const fx = Q.usdkrw && Q.usdkrw.price;
 
-  if (!metal) {
+  // 현물 API가 막히면 COMEX 선물로 대체 (라벨도 함께 바뀜)
+  const useFut = !spot && !!fut;
+  const price = spot ? spot.price : (fut ? fut.price : NaN);
+
+  if (!(price > 0)) {
     r.num.textContent = '–';
     r.delta.textContent = lastOkAt ? '불러오지 못했어요' : '불러오는 중…';
     r.src.textContent = lastOkAt ? '연결 실패 · 재시도 중' : '연결 중';
@@ -557,7 +568,10 @@ function renderMetal(it) {
   r.card.classList.remove('up', 'down', 'flat');
   r.card.classList.add(dir);
 
-  r.num.textContent = fmt(metal.price, 2);
+  r.tag.className = 'tag ' + (useFut ? 'after' : 'open');
+  r.tag.textContent = useFut ? '선물' : '현물';
+
+  r.num.textContent = fmt(price, 2);
   if (fut && Number.isFinite(fut.pct)) {
     r.delta.innerHTML =
       `<span class="ar">${arrow(fut.change)}</span>` +
@@ -568,7 +582,7 @@ function renderMetal(it) {
   }
 
   if (fx) {
-    const perG = (metal.price * fx) / OZ_TO_G;
+    const perG = (price * fx) / OZ_TO_G;
     r.g.textContent = fmt(perG, 0) + '원';
     r.don.textContent = fmt(perG * DON_G, 0) + '원';
   } else {
@@ -576,8 +590,10 @@ function renderMetal(it) {
     r.don.textContent = '–';
   }
 
-  r.src.textContent = `${metal.source} · ${kstClock.format(metal.ts)} · 현물`;
-  r.srcDot.classList.remove('old');
+  r.src.textContent = useFut
+    ? `CNBC · ${fut.ts ? kstTime(fut.ts) : '선물'} · 선물 대체`
+    : `${spot.source} · ${kstClock.format(spot.ts)} · 현물`;
+  r.srcDot.classList.toggle('old', useFut);
 }
 
 /* ── 카드 DOM ─────────────────────────────────────── */
@@ -758,11 +774,12 @@ function buildShareText() {
     line('brent', '브렌트'),
   ].map(t => (t ? t.replace(' ', ' $') : t));
   const fx = Q.usdkrw && Q.usdkrw.price;
-  for (const [m, nm] of [[M.gold, '금'], [M.silver, '은']]) {
-    if (!m) continue;
-    let s = `${nm} $${fmt(m.price, 2)}/oz`;
+  for (const [spot, fut, nm] of [[M.gold, Q.goldF, '금'], [M.silver, Q.silverF, '은']]) {
+    const px = spot ? spot.price : (fut ? fut.price : NaN);
+    if (!(px > 0)) continue;
+    let s = `${nm} $${fmt(px, 2)}/oz${spot ? '' : ' (선물)'}`;
     if (fx) {
-      const perG = (m.price * fx) / OZ_TO_G;
+      const perG = (px * fx) / OZ_TO_G;
       s += ` (1g ${fmt(perG, 0)}원 · 1돈 ${fmt(perG * DON_G, 0)}원)`;
     }
     cmd.push(s);
