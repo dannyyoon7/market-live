@@ -145,6 +145,19 @@ async function getJSON(url, ms = 9000) {
   return r.json();
 }
 
+/* 일시적 실패(429·네트워크 순단) 대비 짧은 재시도 */
+async function retry(fn, attempts = 2, waitMs = 1200) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    try { return await fn(); }
+    catch (e) {
+      last = e;
+      if (i < attempts - 1) await new Promise(r => setTimeout(r, waitMs));
+    }
+  }
+  throw last;
+}
+
 /* ── 소스 1. CNBC (지수·주식·환율, CORS 허용) ────────── */
 const CNBC_SYMBOLS = '.KS11|.KQ11|.IXIC|.DJI|NVDA|@GC.1|@SI.1|KRW=';
 const CNBC_MAP = {
@@ -307,7 +320,7 @@ async function refreshAll(manual = false) {
 
   // 1) 지수·주식·환율: CNBC → Yahoo 폴백
   try {
-    await loadCnbc();
+    await retry(loadCnbc, 2, 900);
   } catch (_) {
     try {
       await loadYahoo();
@@ -323,10 +336,10 @@ async function refreshAll(manual = false) {
 
   // 3) 코인·귀금속 (서로 독립)
   await Promise.allSettled([
-    loadUpbit().catch(() => fail.push('업비트')),
-    loadBtcUsd().catch(() => fail.push('BTC달러')),
-    loadMetal('XAU').then(m => { M.gold = m; }).catch(() => fail.push('금')),
-    loadMetal('XAG').then(m => { M.silver = m; }).catch(() => fail.push('은')),
+    retry(loadUpbit).catch(() => fail.push('업비트')),
+    retry(loadBtcUsd).catch(() => fail.push('BTC달러')),
+    retry(() => loadMetal('XAU')).then(m => { M.gold = m; }).catch(() => fail.push('금')),
+    retry(() => loadMetal('XAG')).then(m => { M.silver = m; }).catch(() => fail.push('은')),
   ]);
 
   running = false;
