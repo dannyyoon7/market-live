@@ -286,8 +286,50 @@ async function loadYahoo() {
   return 'yahoo';
 }
 
-/* ── 소스 3. 업비트 · Coinbase ──────────────────────── */
+/* ── 소스 3. 업비트(WebSocket 실시간) · Coinbase ─────── */
+let upbitWS = null;
+let upbitWSLast = 0;
+let upbitRSLast = 0;
+
+function connectUpbit() {
+  try {
+    upbitWS = new WebSocket('wss://api.upbit.com/websocket/v1');
+  } catch (_) { return; }
+  upbitWS.binaryType = 'arraybuffer';
+
+  upbitWS.addEventListener('open', () => {
+    upbitWS.send(JSON.stringify([{ ticket: 'market-live' }, { type: 'ticker', codes: ['KRW-BTC'] }]));
+  });
+
+  upbitWS.addEventListener('message', (ev) => {
+    try {
+      const text = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data);
+      const d = JSON.parse(text);
+      if (d.type !== 'ticker' || !d.trade_price) return;
+      upbitWSLast = Date.now();
+      B.krw = {
+        price: num(d.trade_price),
+        change: num(d.signed_change_price),
+        pct: num(d.signed_change_rate) * 100,
+        prev: num(d.prev_closing_price),
+        ts: new Date(num(d.trade_timestamp) || Date.now()),
+        source: '업비트',
+      };
+      renderBtc();
+      lastOkAt = new Date();
+      updateStatus();
+    } catch (_) { /* 형식 오류 무시 */ }
+  });
+
+  upbitWS.addEventListener('close', () => setTimeout(connectUpbit, 5000));
+  upbitWS.addEventListener('error', () => { try { upbitWS.close(); } catch (_) {} });
+}
+
+/* WS가 15초 이상 조용하면 REST 폴백(10초에 1회, 429 방지) */
 async function loadUpbit() {
+  if (Date.now() - upbitWSLast < 15000) return;
+  if (Date.now() - upbitRSLast < 10000) return;
+  upbitRSLast = Date.now();
   const j = await getJSON('https://api.upbit.com/v1/ticker?markets=KRW-BTC', 6000);
   const t = Array.isArray(j) ? j[0] : null;
   if (!t) throw new Error('업비트 응답 없음');
@@ -368,7 +410,10 @@ function tick() {
 
   schedule('crypto', async () => {
     const res = await Promise.allSettled([loadUpbit(), loadBtcUsd()]);
-    if (res.every(r => r.status === 'rejected')) throw new Error('코인 시세 실패');
+    // 업비트 WS가 살아 있으면 REST는 건너뛰므로 둘 다 실패해도 정상으로 본다
+    if (res.every(r => r.status === 'rejected') && Date.now() - upbitWSLast > 15000) {
+      throw new Error('코인 시세 실패');
+    }
   });
 
   schedule('metals', async () => {
@@ -847,6 +892,7 @@ function init() {
   buildCards();
   bind();
   startClock();
+  connectUpbit();
   tick();
   updateStatus();
   setInterval(() => {
